@@ -18,7 +18,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import DistributedModel, is_main_process
+from flair.distributed_utils import DistributedModel, is_main_process, launch_distributed
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -254,7 +254,10 @@ class ModelTrainer(Pluggable):
         if attach_default_scheduler:
             plugins.append(LinearSchedulerPlugin(warmup_fraction=warmup_fraction))
 
-        return self.train_custom(
+        def to_locals(**kwargs):
+            return kwargs
+
+        all_kwargs = to_locals(
             base_path=base_path,
             # training parameters
             learning_rate=learning_rate,
@@ -296,6 +299,15 @@ class ModelTrainer(Pluggable):
             **kwargs,
         )
 
+        torch.cuda.set_device(3)
+        launch_distributed(self.train_custom, all_kwargs) #change launch_distributed to support args and kwargs
+        return None
+
+    def do_nothing(self, **kwargs):
+        print(f"Running training!")
+        torch.distributed.barrier()
+        print(f"Finished. rank={flair.device.index}")
+
     def train_custom(
         self,
         base_path: Union[Path, str],
@@ -335,6 +347,7 @@ class ModelTrainer(Pluggable):
         write_weights: bool = False,
         # amp
         use_amp: bool = False,
+        multi_gpu: bool = False,
         # plugins
         plugins: Optional[List[TrainerPlugin]] = None,
         **kwargs,
@@ -377,6 +390,7 @@ class ModelTrainer(Pluggable):
             create_file_logs: If True, logging output is written to a file
             create_loss_file: If True, a loss file logging output is created
             use_amp: If True, uses the torch automatic mixed precision
+            multi_gpu: If True, uses torch.nn.parallel.DistributedDataParallel for multi-GPU training
             write_weights: If True, write weights to weights.txt on each batch logging event.
             plugins: Any additional plugins you want to pass to the trainer
             **kwargs: Additional arguments, for instance for the optimizer
@@ -422,8 +436,13 @@ class ModelTrainer(Pluggable):
                 base_path=base_path,
             ).attach_to(self)
 
-        if flair.distributed:
+        if multi_gpu:
+            # self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
+            self._event_queue = Queue()  # Don't share
+            self.reset_queue()
+        # Disable logging in distributed mode for all but the main process
+        # log.disabled = not is_main_process()
         # === END BLOCK: ACTIVATE PLUGINS === #
 
         # derive parameters the function was called with (or defaults)

@@ -2,7 +2,9 @@ import logging
 from collections import defaultdict
 from inspect import isclass, signature
 from itertools import count
-from queue import Queue
+from torch.multiprocessing import SimpleQueue
+from torch import multiprocessing as mp
+import queue
 from typing import (
     Any,
     Callable,
@@ -50,7 +52,7 @@ class Pluggable:
 
         # This flag tracks, whether an event is currently being processed (otherwise it is added to the queue)
         self._processing_events = False
-        self._event_queue: Queue = Queue()
+        self._event_queue = None   #queue.Queue()  #SimpleQueue = SimpleQueue()
 
         for plugin in plugins:
             if isclass(plugin):
@@ -66,6 +68,10 @@ class Pluggable:
 
     def append_plugin(self, plugin):
         self._plugins.append(plugin)
+
+    def reset_queue(self):
+        print("resetting queue")
+        self._event_queue = queue.Queue()
 
     def validate_event(self, *events: EventIdenifier):
         for event in events:
