@@ -244,6 +244,7 @@ class ModelTrainer(Pluggable):
         write_weights: bool = False,
         # amp
         use_amp: bool = False,
+        multi_gpu: bool = False,
         # plugins
         plugins: Optional[List[TrainerPlugin]] = None,
         attach_default_scheduler: bool = True,
@@ -297,15 +298,19 @@ class ModelTrainer(Pluggable):
             write_weights=write_weights,
             # amp
             use_amp=use_amp,
+            multi_gpu=multi_gpu,
             # plugins
             plugins=plugins,
             **kwargs,
         )
 
-        launch_distributed(self.train_custom, all_kwargs) #change launch_distributed to support args and kwargs
-        self.model.load_state_dict(self.model.state_dict())
-
-        return None
+        if multi_gpu:
+            self._event_queue = None
+            launch_distributed(self.train_custom, all_kwargs) #change launch_distributed to support args and kwargs
+            self.model.load_state_dict(self.model.state_dict())
+            return None
+        else:
+            return self.train_custom(**all_kwargs)
 
     def train_custom(
         self,
@@ -438,7 +443,7 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
-            self._event_queue = queue.Queue()  # Don't share the _event_queue between processes
+            self._event_queue = queue.Queue()  # Each process uses its own queue instead of sharing
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 

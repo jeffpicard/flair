@@ -2,6 +2,7 @@ import logging
 from collections import defaultdict
 from inspect import isclass, signature
 from itertools import count
+from queue import Queue
 from typing import (
     Any,
     Callable,
@@ -51,7 +52,7 @@ class Pluggable:
 
         # This flag tracks, whether an event is currently being processed (otherwise it is added to the queue)
         self._processing_events = False
-        self._event_queue = None#mp.Queue()
+        self._event_queue: Queue = Queue()
 
         for plugin in plugins:
             if isclass(plugin):
