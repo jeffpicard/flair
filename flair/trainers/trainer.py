@@ -7,6 +7,7 @@ import time
 import warnings
 from inspect import signature
 from pathlib import Path
+from queue import Queue
 from typing import List, Optional, Tuple, Type, Union
 
 import torch
@@ -299,14 +300,10 @@ class ModelTrainer(Pluggable):
             **kwargs,
         )
 
-        torch.cuda.set_device(3)
         launch_distributed(self.train_custom, all_kwargs) #change launch_distributed to support args and kwargs
-        return None
+        self.model.load_state_dict(self.model.state_dict())
 
-    def do_nothing(self, **kwargs):
-        print(f"Running training!")
-        torch.distributed.barrier()
-        print(f"Finished. rank={flair.device.index}")
+        return None
 
     def train_custom(
         self,
@@ -437,12 +434,10 @@ class ModelTrainer(Pluggable):
             ).attach_to(self)
 
         if multi_gpu:
-            # self.model.to(flair.device)
+            self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
-            self._event_queue = Queue()  # Don't share
-            self.reset_queue()
-        # Disable logging in distributed mode for all but the main process
-        # log.disabled = not is_main_process()
+            self._event_queue = Queue()  # Don't share the _event_queue between processes
+            log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 
         # derive parameters the function was called with (or defaults)
@@ -584,7 +579,7 @@ class ModelTrainer(Pluggable):
                     if not shuffle_first_epoch and epoch == 1:
                         shuffle_data_this_epoch = False
 
-                    if flair.distributed:
+                    if multi_gpu:
                         batch_loader = DataLoader(
                             train_data,
                             batch_size=mini_batch_size,
@@ -810,42 +805,41 @@ class ModelTrainer(Pluggable):
                 self.dispatch("_training_finally")
 
             # test best model if test data is present
-            if is_main_process():
-                if self.corpus.test and not train_with_test:
-                    log_line(log)
+            if self.corpus.test and not train_with_test:
+                log_line(log)
 
-                    self.model.eval()
+                self.model.eval()
 
-                    if (base_path / "best-model.pt").exists():
-                        log.info("Loading model from best epoch ...")
-                        self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
-                    else:
-                        log.info("Testing using last state of model ...")
-
-                    test_results = self.model.evaluate(
-                        self.corpus.test,
-                        gold_label_type=self.model.label_type,
-                        mini_batch_size=eval_batch_size,
-                        out_path=base_path / "test.tsv",
-                        embedding_storage_mode="none",
-                        main_evaluation_metric=main_evaluation_metric,
-                        gold_label_dictionary=gold_label_dictionary_for_eval,
-                        exclude_labels=exclude_labels,
-                        return_loss=False,
-                    )
-
-                    log.info(test_results.detailed_results)
-                    log_line(log)
-
-                    # get and return the final test score of best model
-                    self.return_values["test_score"] = test_results.main_score
-
+                if (base_path / "best-model.pt").exists():
+                    log.info("Loading model from best epoch ...")
+                    self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
                 else:
-                    if (base_path / "best-model.pt").exists():
-                        log.info("Loading model from best epoch ...")
-                        self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
-                    self.return_values["test_score"] = 0
-                    log.info("Test data not provided setting final score to 0")
+                    log.info("Testing using last state of model ...")
+
+                test_results = self.model.evaluate(
+                    self.corpus.test,
+                    gold_label_type=self.model.label_type,
+                    mini_batch_size=eval_batch_size,
+                    out_path=base_path / "test.tsv",
+                    embedding_storage_mode="none",
+                    main_evaluation_metric=main_evaluation_metric,
+                    gold_label_dictionary=gold_label_dictionary_for_eval,
+                    exclude_labels=exclude_labels,
+                    return_loss=False,
+                )
+
+                log.info(test_results.detailed_results)
+                log_line(log)
+
+                # get and return the final test score of best model
+                self.return_values["test_score"] = test_results.main_score
+
+            else:
+                if (base_path / "best-model.pt").exists():
+                    log.info("Loading model from best epoch ...")
+                    self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
+                self.return_values["test_score"] = 0
+                log.info("Test data not provided setting final score to 0")
 
         # MetricHistoryPlugin -> stores the loss history in return_values
         self.dispatch("after_training")
@@ -855,6 +849,8 @@ class ModelTrainer(Pluggable):
 
         self.reset_training_attributes()
 
+        if multi_gpu:
+            del self.model  # clears cuda memory before process exits
         return return_values
 
     def _get_current_lr_and_momentum(self, batch_count):
