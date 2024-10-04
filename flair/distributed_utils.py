@@ -10,25 +10,29 @@ import flair
 log = logging.getLogger("flair")
 
 
-def launch_distributed(fp, all_kwargs):
+def launch_distributed(fp, launch_args=None, on_close=None, *args, **kwargs):
     """Executes the function fp(*args) on multiple GPUs (all local GPUs)."""
     world_size = torch.cuda.device_count()
     world_size = 2#torch.cuda.device_count()
     log.info(f"Launching {world_size} distributed processes")
-    mp.spawn(entrypoint, args=(world_size, fp, all_kwargs), nprocs=world_size)
+    parent_conn, child_conn = mp.Pipe()
+    mp.spawn(_entrypoint, args=(world_size, launch_args, on_close, child_conn, fp, args, kwargs), nprocs=world_size)
+    return_value = parent_conn.recv()
+    return return_value
 
 
 # def entrypoint(rank, world_size, fp, *args):
-def entrypoint(rank, world_size, fp, all_kwargs):
+def _entrypoint(rank, world_size, launch_args, on_end, return_values, fp, args, kwargs):
     log.info(f"Started process on rank={rank}")
-    ddp_setup(rank, world_size)
-    # fp(*args)
-    # print(f"inside entrypoint: kwargs={all_kwargs}")
-    fp(**all_kwargs)
+    _ddp_setup(rank, world_size)
+    return_value = fp(*args, **kwargs)
+    if is_main_process():
+        return_values.send(return_value)
+    # on_end(launch_args)
     destroy_process_group()
 
 
-def ddp_setup(rank: int, world_size: int) -> None:
+def _ddp_setup(rank: int, world_size: int) -> None:
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
     flair.distributed = True

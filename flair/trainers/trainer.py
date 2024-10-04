@@ -12,6 +12,7 @@ from queue import Queue
 from typing import List, Optional, Tuple, Type, Union
 
 import torch
+import torch.multiprocessing as mp
 from torch.optim.sgd import SGD
 from torch.utils.data import DistributedSampler
 from torch.utils.data.dataset import ConcatDataset
@@ -167,6 +168,8 @@ class ModelTrainer(Pluggable):
         create_file_logs: bool = True,
         create_loss_file: bool = True,
         write_weights: bool = False,
+        # scaling
+        multi_gpu: bool = False,
         # plugins
         plugins: Optional[List[TrainerPlugin]] = None,
         attach_default_scheduler: bool = True,
@@ -202,7 +205,14 @@ class ModelTrainer(Pluggable):
             "kwargs",
         ]:
             local_variables.pop(var)
-        return self.train_custom(**local_variables, **kwargs)
+
+        if multi_gpu:
+            self._event_queue = None  # Each process will make its own queue rather than share
+            launch_distributed(self.train_custom, **local_variables, **kwargs)
+            self.model.load_state_dict(self.model.state_dict())
+            return None # TODO
+        else:
+            return self.train_custom(**local_variables, **kwargs)
 
     def fine_tune(
         self,
@@ -241,7 +251,7 @@ class ModelTrainer(Pluggable):
         create_file_logs: bool = True,
         create_loss_file: bool = True,
         write_weights: bool = False,
-        # amp
+        # scaling
         use_amp: bool = False,
         multi_gpu: bool = False,
         # plugins
@@ -257,59 +267,22 @@ class ModelTrainer(Pluggable):
         if attach_default_scheduler:
             plugins.append(LinearSchedulerPlugin(warmup_fraction=warmup_fraction))
 
-        def to_locals(**kwargs):
-            return kwargs
-
-        all_kwargs = to_locals(
-            base_path=base_path,
-            # training parameters
-            learning_rate=learning_rate,
-            decoder_learning_rate=decoder_learning_rate,
-            mini_batch_size=mini_batch_size,
-            eval_batch_size=eval_batch_size,
-            mini_batch_chunk_size=mini_batch_chunk_size,
-            max_epochs=max_epochs,
-            optimizer=optimizer,
-            train_with_dev=train_with_dev,
-            train_with_test=train_with_test,
-            reduce_transformer_vocab=reduce_transformer_vocab,
-            # evaluation and monitoring
-            main_evaluation_metric=main_evaluation_metric,
-            monitor_test=monitor_test,
-            monitor_train_sample=monitor_train_sample,
-            use_final_model_for_eval=use_final_model_for_eval,
-            gold_label_dictionary_for_eval=gold_label_dictionary_for_eval,
-            exclude_labels=exclude_labels,
-            # sampling and shuffling
-            sampler=sampler,
-            shuffle=shuffle,
-            shuffle_first_epoch=shuffle_first_epoch,
-            # evaluation and monitoring
-            embeddings_storage_mode=embeddings_storage_mode,
-            epoch=epoch,
-            # when and what to save
-            save_final_model=save_final_model,
-            save_optimizer_state=save_optimizer_state,
-            save_model_each_k_epochs=save_model_each_k_epochs,
-            # logging parameters
-            create_file_logs=create_file_logs,
-            create_loss_file=create_loss_file,
-            write_weights=write_weights,
-            # amp
-            use_amp=use_amp,
-            multi_gpu=multi_gpu,
-            # plugins
-            plugins=plugins,
-            **kwargs,
-        )
+        # call self.train_custom with all parameters (minus the ones specific to the LinearSchedulerPlugin)
+        local_variables = locals()
+        for var in [
+            "self",
+            "warmup_fraction",
+            "attach_default_scheduler",
+            "kwargs",
+        ]:
+            local_variables.pop(var)
 
         if multi_gpu:
             self._event_queue = None
-            launch_distributed(self.train_custom, all_kwargs) #change launch_distributed to support args and kwargs
-            self.model.load_state_dict(self.model.state_dict())
-            return None
+            # self.model.load_state_dict(new_state)
+            return launch_distributed(self.train_custom, launch_args=None, on_close=None, **local_variables, **kwargs)
         else:
-            return self.train_custom(**all_kwargs)
+            return self.train_custom(**local_variables, **kwargs)
 
     def train_custom(
         self,
@@ -348,7 +321,7 @@ class ModelTrainer(Pluggable):
         create_file_logs: bool = True,
         create_loss_file: bool = True,
         write_weights: bool = False,
-        # amp
+        # scaling
         use_amp: bool = False,
         multi_gpu: bool = False,
         # plugins
@@ -393,7 +366,7 @@ class ModelTrainer(Pluggable):
             create_file_logs: If True, logging output is written to a file
             create_loss_file: If True, a loss file logging output is created
             use_amp: If True, uses the torch automatic mixed precision
-            multi_gpu: If True, uses torch.nn.parallel.DistributedDataParallel for multi-GPU training
+            multi_gpu: If True, uses all available GPUs
             write_weights: If True, write weights to weights.txt on each batch logging event.
             plugins: Any additional plugins you want to pass to the trainer
             **kwargs: Additional arguments, for instance for the optimizer
@@ -442,7 +415,7 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
-            self._event_queue = Queue()  # Each process uses its own queue instead of sharing
+            self._event_queue = Queue()  # Each process uses its own queue rather than share
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 
@@ -864,6 +837,7 @@ class ModelTrainer(Pluggable):
         self.reset_training_attributes()
 
         if multi_gpu:
+            # TODO put in finally
             del self.model  # clears cuda memory before process exits
         return return_values
 
