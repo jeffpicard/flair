@@ -7,7 +7,8 @@ import time
 import warnings
 from inspect import signature
 from pathlib import Path
-from queue import Queue
+from multiprocessing import SimpleQueue
+import queue
 from typing import List, Optional, Tuple, Type, Union
 
 import torch
@@ -36,6 +37,7 @@ from flair.trainers.plugins import (
     WeightExtractorPlugin,
 )
 from flair.training_utils import EmbeddingStorageMode, identify_dynamic_embeddings, log_line, store_embeddings
+import torch.multiprocessing as mp
 
 log = logging.getLogger("flair")
 
@@ -436,7 +438,7 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
-            self._event_queue = Queue()  # Don't share the _event_queue between processes
+            self._event_queue = queue.Queue()  # Don't share the _event_queue between processes
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 
@@ -586,7 +588,7 @@ class ModelTrainer(Pluggable):
                             shuffle=False,
                             sampler=DistributedSampler(train_data, shuffle=shuffle_data_this_epoch),
                         )
-                        batch_loader.sampler.set_epoch(epoch)
+                        batch_loader.sampler.set_epoch(epoch - 1)
                     else:
                         batch_loader = DataLoader(
                             train_data,
@@ -763,7 +765,7 @@ class ModelTrainer(Pluggable):
                         validation_scores=validation_scores,
                     )
 
-                    if save_best_model and current_epoch_has_best_model_so_far:
+                    if save_best_model and current_epoch_has_best_model_so_far and is_main_process():
                         log.info("saving best model")
                         self.model.save(base_path / "best-model.pt", checkpoint=save_optimizer_state)
 
@@ -771,7 +773,7 @@ class ModelTrainer(Pluggable):
                 self.dispatch("after_training_loop")
 
                 # if we do not use dev data for model selection, save final model
-                if save_final_model:
+                if save_final_model and is_main_process():
                     self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
 
             except KeyboardInterrupt:
@@ -780,7 +782,7 @@ class ModelTrainer(Pluggable):
 
                 self.dispatch("training_interrupt")  # TODO: no plugin calls this event
 
-                if save_final_model:
+                if save_final_model and is_main_process():
                     log.info("Saving model ...")
                     self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
                 log.info("Done.")
@@ -791,7 +793,7 @@ class ModelTrainer(Pluggable):
                 log_line(log)
                 self.dispatch("training_interrupt")  # TODO: no plugin calls this event
 
-                if save_final_model:
+                if save_final_model and is_main_process():
                     log.info("Saving model ...")
                     self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
                 log.info("Done.")
