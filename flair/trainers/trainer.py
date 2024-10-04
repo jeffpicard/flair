@@ -3,12 +3,12 @@ import inspect
 import logging
 import os
 import random
+import statistics
 import time
 import warnings
 from inspect import signature
 from pathlib import Path
-from multiprocessing import SimpleQueue
-import queue
+from queue import Queue
 from typing import List, Optional, Tuple, Type, Union
 
 import torch
@@ -20,7 +20,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import DistributedModel, is_main_process, launch_distributed
+from flair.distributed_utils import DistributedModel, is_main_process, launch_distributed, aggregate_across_processes
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -37,7 +37,6 @@ from flair.trainers.plugins import (
     WeightExtractorPlugin,
 )
 from flair.training_utils import EmbeddingStorageMode, identify_dynamic_embeddings, log_line, store_embeddings
-import torch.multiprocessing as mp
 
 log = logging.getLogger("flair")
 
@@ -443,7 +442,7 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             self.model.to(flair.device)
             self.model = DistributedModel(self.model, device_ids=[flair.device.index])
-            self._event_queue = queue.Queue()  # Each process uses its own queue instead of sharing
+            self._event_queue = Queue()  # Each process uses its own queue instead of sharing
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 
@@ -533,6 +532,11 @@ class ModelTrainer(Pluggable):
                 if use_final_model_for_eval
                 else "model from best epoch (best-model.pt)"
             )
+            computation_device_info = (
+                f"{torch.cuda.device_count()} GPUs"
+                if multi_gpu
+                else flair.device
+            )
 
             # gather metrics here
             log_line(log)
@@ -560,7 +564,7 @@ class ModelTrainer(Pluggable):
             log.info(f' - metric: "{main_evaluation_metric}"')
             log_line(log)
             log.info("Computation:")
-            log.info(f" - compute on device: {flair.device}")
+            log.info(f" - compute on device: {computation_device_info}")
             log.info(f" - embedding storage: {embeddings_storage_mode}")
             log_line(log)
             log.info(f'Model training base path: "{base_path}"')
@@ -755,6 +759,10 @@ class ModelTrainer(Pluggable):
 
                     # if not using DEV score, determine best model using train loss
                     if not determine_best_epoch_using_dev_score:
+                        if multi_gpu:
+                            train_loss = aggregate_across_processes(train_loss, statistics.mean)
+                            epoch_train_loss = aggregate_across_processes(epoch_train_loss, statistics.mean)
+
                         validation_scores = (train_loss,)
 
                         if epoch_train_loss < best_epoch_score:

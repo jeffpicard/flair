@@ -18,8 +18,6 @@ from typing import (
     cast,
 )
 
-import torch.multiprocessing as mp
-
 log = logging.getLogger("flair")
 
 

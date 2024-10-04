@@ -39,10 +39,16 @@ def ddp_setup(rank: int, world_size: int) -> None:
 
 def is_main_process() -> bool:
     """True for exactly 1 process, regardless of whether being run on CPU/single-GPU/multi-gpu."""
-    if flair.distributed:
-        return flair.device.index == 0
+    if torch.distributed.is_initialized():
+        return torch.distributed.get_rank() == 0
     else:
         return True
+
+
+def aggregate_across_processes(value, f):
+    output = [None for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather_object(output, value)
+    return f(output)
 
 
 class DistributedModel(torch.nn.parallel.DistributedDataParallel):
