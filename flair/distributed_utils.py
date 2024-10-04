@@ -20,7 +20,7 @@ def launch_distributed(fp, all_kwargs):
 
 # def entrypoint(rank, world_size, fp, *args):
 def entrypoint(rank, world_size, fp, all_kwargs):
-    print(f"Started process on rank={rank}")
+    log.info(f"Started process on rank={rank}")
     ddp_setup(rank, world_size)
     # fp(*args)
     # print(f"inside entrypoint: kwargs={all_kwargs}")

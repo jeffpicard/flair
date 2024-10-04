@@ -527,37 +527,37 @@ class ModelTrainer(Pluggable):
                 else "model from best epoch (best-model.pt)"
             )
 
-            if is_main_process():
-                log_line(log)
-                log.info(f'Model: "{self.model}"')
-                log_line(log)
-                log.info(f"{self.corpus}")
-                log_line(log)
-                log.info(f"Train:  {len(train_data)} sentences")
-                log.info(f"        (train_with_dev={train_with_dev}, train_with_test={train_with_test})")
-                log_line(log)
-                log.info("Training Params:")
-                log.info(
-                    f' - learning_rate: "{learning_rate}" '
-                    f'{"(decoder: " + str(decoder_learning_rate) + ")" if decoder_learning_rate else ""}'
-                )
-                log.info(f' - mini_batch_size: "{mini_batch_size}"')
-                log.info(f' - max_epochs: "{max_epochs}"')
-                log.info(f' - shuffle: "{shuffle}"')
-                log_line(log)
-                log.info("Plugins:")
-                for plugin in plugins:
-                    log.info(" - " + str(plugin))
-                log_line(log)
-                log.info(f"Final evaluation on {final_eval_info}")
-                log.info(f' - metric: "{main_evaluation_metric}"')
-                log_line(log)
-                log.info("Computation:")
-                log.info(f" - compute on device: {flair.device}")
-                log.info(f" - embedding storage: {embeddings_storage_mode}")
-                log_line(log)
-                log.info(f'Model training base path: "{base_path}"')
-                log_line(log)
+            # gather metrics here
+            log_line(log)
+            log.info(f'Model: "{self.model}"')
+            log_line(log)
+            log.info(f"{self.corpus}")
+            log_line(log)
+            log.info(f"Train:  {len(train_data)} sentences")
+            log.info(f"        (train_with_dev={train_with_dev}, train_with_test={train_with_test})")
+            log_line(log)
+            log.info("Training Params:")
+            log.info(
+                f' - learning_rate: "{learning_rate}" '
+                f'{"(decoder: " + str(decoder_learning_rate) + ")" if decoder_learning_rate else ""}'
+            )
+            log.info(f' - mini_batch_size: "{mini_batch_size}"')
+            log.info(f' - max_epochs: "{max_epochs}"')
+            log.info(f' - shuffle: "{shuffle}"')
+            log_line(log)
+            log.info("Plugins:")
+            for plugin in plugins:
+                log.info(" - " + str(plugin))
+            log_line(log)
+            log.info(f"Final evaluation on {final_eval_info}")
+            log.info(f' - metric: "{main_evaluation_metric}"')
+            log_line(log)
+            log.info("Computation:")
+            log.info(f" - compute on device: {flair.device}")
+            log.info(f" - embedding storage: {embeddings_storage_mode}")
+            log_line(log)
+            log.info(f'Model training base path: "{base_path}"')
+            log_line(log)
 
             # At any point you can hit Ctrl + C to break out of training early.
             try:
