@@ -14,7 +14,7 @@ def launch_distributed(fp, launch_args=None, on_close=None, *args, **kwargs):
     """Executes the function fp(*args) on multiple GPUs (all local GPUs)."""
     world_size = torch.cuda.device_count()
     world_size = 2#torch.cuda.device_count()
-    log.info(f"Launching {world_size} distributed processes")
+    log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
     mp.spawn(_entrypoint, args=(world_size, launch_args, on_close, child_conn, fp, args, kwargs), nprocs=world_size)
     return_value = parent_conn.recv()
@@ -35,7 +35,6 @@ def _entrypoint(rank, world_size, launch_args, on_end, return_values, fp, args, 
 def _ddp_setup(rank: int, world_size: int) -> None:
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
-    flair.distributed = True
     flair.device = torch.device(rank)
     torch.cuda.set_device(flair.device)
     init_process_group(backend="nccl", rank=rank, world_size=world_size)
