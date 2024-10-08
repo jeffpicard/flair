@@ -615,7 +615,7 @@ class ModelTrainer(Pluggable):
                         for batch_step in batch_steps:
                             # forward pass
                             with torch.autocast(device_type=flair.device.type, enabled=use_amp):
-                                loss, datapoint_count = self.model.forward_loss(batch_step)
+                                loss, datapoint_count = self.model(batch_step)
 
                             batch_train_samples += datapoint_count
                             batch_train_loss += loss.item()
