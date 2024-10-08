@@ -3,13 +3,12 @@ import inspect
 import logging
 import os
 import random
-import statistics
 import time
 import warnings
 from inspect import signature
 from pathlib import Path
 from queue import Queue
-from typing import List, Optional, Tuple, Type, Union, Dict, Any
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -22,7 +21,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import is_main_process, launch_distributed, aggregate_if_distributed
+from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -503,11 +502,7 @@ class ModelTrainer(Pluggable):
                 if use_final_model_for_eval
                 else "model from best epoch (best-model.pt)"
             )
-            computation_device_info = (
-                f"{torch.cuda.device_count()} GPUs"
-                if multi_gpu
-                else flair.device
-            )
+            computation_device_info = f"{torch.cuda.device_count()} GPUs" if multi_gpu else flair.device
 
             # gather metrics here
             log_line(log)

@@ -10,7 +10,6 @@ from torch.distributed import destroy_process_group, init_process_group
 import flair
 from flair.class_utils import T
 
-
 log = logging.getLogger("flair")
 
 
@@ -20,7 +19,6 @@ def launch_distributed(fn, *args, **kwargs):
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
     world_size = torch.cuda.device_count()
-    world_size = 2#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
     mp.spawn(_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
