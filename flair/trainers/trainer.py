@@ -12,7 +12,6 @@ from queue import Queue
 from typing import List, Optional, Tuple, Type, Union
 
 import torch
-import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim.sgd import SGD
 from torch.utils.data import DistributedSampler
@@ -22,7 +21,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import DistributedModel, is_main_process, launch_distributed, aggregate_across_processes
+from flair.distributed_utils import is_main_process, launch_distributed, aggregate_across_processes
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -209,9 +208,7 @@ class ModelTrainer(Pluggable):
 
         if multi_gpu:
             self._event_queue = None  # Each process will make its own queue rather than share
-            launch_distributed(self.train_custom, **local_variables, **kwargs)
-            self.model.load_state_dict(self.model.state_dict())
-            return None # TODO
+            return launch_distributed(self.train_custom, **local_variables, **kwargs)
         else:
             return self.train_custom(**local_variables, **kwargs)
 
@@ -280,8 +277,7 @@ class ModelTrainer(Pluggable):
 
         if multi_gpu:
             self._event_queue = None
-            # self.model.load_state_dict(new_state)
-            return launch_distributed(self.train_custom, launch_args=None, on_close=None, **local_variables, **kwargs)
+            return launch_distributed(self.train_custom, **local_variables, **kwargs)
         else:
             return self.train_custom(**local_variables, **kwargs)
 
@@ -837,9 +833,6 @@ class ModelTrainer(Pluggable):
 
         self.reset_training_attributes()
 
-        if multi_gpu:
-            # TODO put in finally
-            del self.model  # clears cuda memory before process exits
         return return_values
 
     def _get_current_lr_and_momentum(self, batch_count):
@@ -927,7 +920,7 @@ class ModelTrainer(Pluggable):
         self.dispatch("metric_recorded", metric)
 
     def _save_model(self, model_file: Union[str, Path], checkpoint: bool = False) -> None:
-        """Saves the current model, including when distributed for multiple gpus.
+        """Saves the current model. Safe to call from a distributed context.
 
         Args:
             model_file: the model file

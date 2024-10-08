@@ -1,5 +1,6 @@
 import logging
 import os
+from typing import Callable
 
 import torch
 import torch.multiprocessing as mp
@@ -10,25 +11,27 @@ import flair
 log = logging.getLogger("flair")
 
 
-def launch_distributed(fp, launch_args=None, on_close=None, *args, **kwargs):
-    """Executes the function fp(*args) on multiple GPUs (all local GPUs)."""
+def launch_distributed(fn, *args, **kwargs):
+    """Executes the function fn(*args, **kwargs) on multiple processes (one for each local GPU).
+
+    Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
+    """
     world_size = torch.cuda.device_count()
     world_size = 2#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
-    mp.spawn(_entrypoint, args=(world_size, launch_args, on_close, child_conn, fp, args, kwargs), nprocs=world_size)
+    mp.spawn(_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
     return_value = parent_conn.recv()
     return return_value
 
 
-# def entrypoint(rank, world_size, fp, *args):
-def _entrypoint(rank, world_size, launch_args, on_end, return_values, fp, args, kwargs):
+def _entrypoint(rank: int, world_size: int, child_conn: mp.Pipe, fn: Callable, args: list, kwargs: dict) -> None:
+    """Lifecycle of a process -- setup, run, cleanup."""
     log.info(f"Started process on rank={rank}")
     _ddp_setup(rank, world_size)
-    return_value = fp(*args, **kwargs)
+    return_value = fn(*args, **kwargs)
     if is_main_process():
-        return_values.send(return_value)
-    # on_end(launch_args)
+        child_conn.send(return_value)
     destroy_process_group()
 
 
