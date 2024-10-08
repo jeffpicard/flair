@@ -13,6 +13,7 @@ from typing import List, Optional, Tuple, Type, Union
 
 import torch
 import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel
 from torch.optim.sgd import SGD
 from torch.utils.data import DistributedSampler
 from torch.utils.data.dataset import ConcatDataset
@@ -414,7 +415,7 @@ class ModelTrainer(Pluggable):
 
         if multi_gpu:
             self.model.to(flair.device)
-            self.model = DistributedModel(self.model, device_ids=[flair.device.index])
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
             self._event_queue = Queue()  # Each process uses its own queue rather than share
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
@@ -615,7 +616,7 @@ class ModelTrainer(Pluggable):
                         for batch_step in batch_steps:
                             # forward pass
                             with torch.autocast(device_type=flair.device.type, enabled=use_amp):
-                                loss, datapoint_count = self.model(batch_step)
+                                loss, datapoint_count = self.ddp_model(batch_step)
 
                             batch_train_samples += datapoint_count
                             batch_train_loss += loss.item()
@@ -751,16 +752,16 @@ class ModelTrainer(Pluggable):
                         validation_scores=validation_scores,
                     )
 
-                    if save_best_model and current_epoch_has_best_model_so_far and is_main_process():
+                    if save_best_model and current_epoch_has_best_model_so_far:
                         log.info("saving best model")
-                        self.model.save(base_path / "best-model.pt", checkpoint=save_optimizer_state)
+                        self._save_model(base_path / "best-model.pt", checkpoint=save_optimizer_state)
 
                 # - SWAPlugin -> restores SGD weights from SWA
                 self.dispatch("after_training_loop")
 
                 # if we do not use dev data for model selection, save final model
-                if save_final_model and is_main_process():
-                    self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
+                if save_final_model:
+                    self._save_model(base_path / "final-model.pt", checkpoint=save_optimizer_state)
 
             except KeyboardInterrupt:
                 log_line(log)
@@ -768,9 +769,9 @@ class ModelTrainer(Pluggable):
 
                 self.dispatch("training_interrupt")  # TODO: no plugin calls this event
 
-                if save_final_model and is_main_process():
+                if save_final_model:
                     log.info("Saving model ...")
-                    self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
+                    self._save_model(base_path / "final-model.pt", checkpoint=save_optimizer_state)
                 log.info("Done.")
 
             except TrainingInterrupt as exc:
@@ -779,9 +780,9 @@ class ModelTrainer(Pluggable):
                 log_line(log)
                 self.dispatch("training_interrupt")  # TODO: no plugin calls this event
 
-                if save_final_model and is_main_process():
+                if save_final_model:
                     log.info("Saving model ...")
-                    self.model.save(base_path / "final-model.pt", checkpoint=save_optimizer_state)
+                    self._save_model(base_path / "final-model.pt", checkpoint=save_optimizer_state)
                 log.info("Done.")
 
             except Exception:
@@ -799,7 +800,7 @@ class ModelTrainer(Pluggable):
 
                 if (base_path / "best-model.pt").exists():
                     log.info("Loading model from best epoch ...")
-                    self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
+                    self._load_model(self.model.load(base_path / "best-model.pt").state_dict())
                 else:
                     log.info("Testing using last state of model ...")
 
@@ -824,7 +825,7 @@ class ModelTrainer(Pluggable):
             else:
                 if (base_path / "best-model.pt").exists():
                     log.info("Loading model from best epoch ...")
-                    self.model.load_state_dict(self.model.load(base_path / "best-model.pt").state_dict())
+                    self._load_model(self.model.load(base_path / "best-model.pt").state_dict())
                 self.return_values["test_score"] = 0
                 log.info("Test data not provided setting final score to 0")
 
@@ -924,3 +925,21 @@ class ModelTrainer(Pluggable):
 
     def _record(self, metric):
         self.dispatch("metric_recorded", metric)
+
+    def _save_model(self, model_file: Union[str, Path], checkpoint: bool = False) -> None:
+        """Saves the current model, including when distributed for multiple gpus.
+
+        Args:
+            model_file: the model file
+            checkpoint: currently unused.
+        """
+        if is_main_process():
+            self.model.save(model_file, checkpoint)
+
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()  # Prevent any process from loading a model until writing is complete
+
+    def _load_model(self, state_dict):
+        self.model.load_state_dict(state_dict)
+        if torch.distributed.is_initialized():
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])

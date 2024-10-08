@@ -52,13 +52,3 @@ def aggregate_across_processes(value, f):
     output = [None for _ in range(torch.distributed.get_world_size())]
     torch.distributed.all_gather_object(output, value)
     return f(output)
-
-
-class DistributedModel(torch.nn.parallel.DistributedDataParallel):
-    """DistributedDataParallel, but redirects access to methods and attributes to the original Model."""
-
-    def __getattr__(self, name):
-        try:
-            return super().__getattr__(name)
-        except AttributeError:
-            return getattr(self.module, name)
