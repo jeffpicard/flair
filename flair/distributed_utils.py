@@ -1,12 +1,15 @@
 import logging
 import os
-from typing import Callable
+from typing import Callable, List
 
+import numpy as np
 import torch
 import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group, init_process_group
 
 import flair
+from flair.class_utils import T
+
 
 log = logging.getLogger("flair")
 
@@ -51,7 +54,11 @@ def is_main_process() -> bool:
         return True
 
 
-def aggregate_across_processes(value, f):
-    output = [None for _ in range(torch.distributed.get_world_size())]
-    torch.distributed.all_gather_object(output, value)
-    return f(output)
+def aggregate_if_distributed(value: T, aggregation_fn: Callable[[List[T]], T] = np.mean) -> T:
+    """Gathers value from each process and returns the aggregated value according to the supplied function"""
+    if torch.distributed.is_initialized():
+        gathered_values = [None for _ in range(torch.distributed.get_world_size())]
+        torch.distributed.all_gather_object(gathered_values, value)
+        return aggregation_fn(gathered_values)
+    else:
+        return value

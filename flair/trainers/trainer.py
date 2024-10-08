@@ -9,8 +9,9 @@ import warnings
 from inspect import signature
 from pathlib import Path
 from queue import Queue
-from typing import List, Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union, Dict, Any
 
+import numpy as np
 import torch
 from torch.nn.parallel import DistributedDataParallel
 from torch.optim.sgd import SGD
@@ -658,8 +659,11 @@ class ModelTrainer(Pluggable):
                                 if epoch_train_samples > 0
                                 else epoch_train_samples / (batch_no + 1)
                             )
+                            intermittent_loss = aggregate_across_processes(intermittent_loss)
 
                             current_time = time.time()
+                            samples_per_second = epoch_train_samples / (current_time - epoch_start_time)
+                            samples_per_second = aggregate_across_processes(samples_per_second, np.sum)
 
                             lr_info, momentum_info = self._get_current_lr_and_momentum(batch_count)
                             log.info(
@@ -667,7 +671,7 @@ class ModelTrainer(Pluggable):
                                 f" - iter {batch_no + 1}/{len(batch_loader)}"
                                 f" - loss {intermittent_loss:.8f}"
                                 f" - time (sec): {(current_time - epoch_start_time):.2f}"
-                                f" - samples/sec: {epoch_train_samples / (current_time - epoch_start_time):.2f}"
+                                f" - samples/sec: {samples_per_second:.2f}"
                                 f"{lr_info}{momentum_info}"
                             )
 
@@ -676,6 +680,7 @@ class ModelTrainer(Pluggable):
                         self.dispatch("after_training_batch", **batch_kw)
 
                     train_loss = epoch_train_loss / epoch_train_samples
+                    train_loss = aggregate_across_processes(train_loss)
                     self._record(MetricRecord.scalar(("train", "loss"), train_loss, epoch))
 
                     total_train_samples += epoch_train_samples
@@ -729,13 +734,9 @@ class ModelTrainer(Pluggable):
 
                     # if not using DEV score, determine best model using train loss
                     if not determine_best_epoch_using_dev_score:
-                        if multi_gpu:
-                            train_loss = aggregate_across_processes(train_loss, statistics.mean)
-                            epoch_train_loss = aggregate_across_processes(epoch_train_loss, statistics.mean)
-
                         validation_scores = (train_loss,)
 
-                        if epoch_train_loss < best_epoch_score:
+                        if train_loss < best_epoch_score:
                             current_epoch_has_best_model_so_far = True
                             best_epoch_score = train_loss
 
@@ -837,7 +838,9 @@ class ModelTrainer(Pluggable):
 
     def _get_current_lr_and_momentum(self, batch_count):
         current_learning_rate = [group["lr"] for group in self.optimizer.param_groups]
+        current_learning_rate = [aggregate_across_processes(m) for m in current_learning_rate]
         momentum = [group.get("momentum", 0) for group in self.optimizer.param_groups]
+        momentum = [aggregate_across_processes(m) for m in momentum]
         lr_info = " - lr: " + ",".join([f"{m:.6f}" for m in current_learning_rate])
         momentum_info = " - momentum: " + ",".join([f"{m:.6f}" for m in momentum])
         self._record(MetricRecord.scalar_list("learning_rate", current_learning_rate, batch_count))
@@ -932,7 +935,7 @@ class ModelTrainer(Pluggable):
         if torch.distributed.is_initialized():
             torch.distributed.barrier()  # Prevent any process from loading a model until writing is complete
 
-    def _load_model(self, state_dict):
+    def _load_model(self, state_dict: Dict[str, Any]):
         self.model.load_state_dict(state_dict)
         if torch.distributed.is_initialized():
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
