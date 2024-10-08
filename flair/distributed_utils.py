@@ -53,7 +53,7 @@ def is_main_process() -> bool:
 
 
 def aggregate_if_distributed(value: T, aggregation_fn: Callable[[List[T]], T] = np.mean) -> T:
-    """Gathers value from each process and returns the aggregated value according to the supplied function"""
+    """Gathers value from each process and returns the aggregated value according to the supplied function."""
     if torch.distributed.is_initialized():
         gathered_values = [None for _ in range(torch.distributed.get_world_size())]
         torch.distributed.all_gather_object(gathered_values, value)
