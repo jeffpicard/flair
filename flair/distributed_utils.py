@@ -19,15 +19,16 @@ def launch_distributed(fn, *args, **kwargs):
 
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
-    world_size = torch.cuda.device_count()
+    world_size = 1#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
-    mp.spawn(_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
+    # mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
+    mp.start_processes(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size, start_method="forkserver")
     return_value = parent_conn.recv()
     return return_value
 
 
-def _entrypoint(rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict) -> None:
+def _process_entrypoint(rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict) -> None:
     """Lifecycle of a process -- setup, run, cleanup."""
     log.info(f"Started process on rank={rank}")
     _ddp_setup(rank, world_size)

@@ -8,7 +8,7 @@ import warnings
 from inspect import signature
 from pathlib import Path
 from queue import Queue
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import List, Optional, Tuple, Type, Union
 
 import numpy as np
 import torch
@@ -608,6 +608,13 @@ class ModelTrainer(Pluggable):
                             # forward pass
                             with torch.autocast(device_type=flair.device.type, enabled=use_amp):
                                 if multi_gpu:
+                                    original_forward = self.model.forward
+                                    def wrapped_forward_loss(*args, **kwargs2):
+                                        self.model.forward = original_forward
+                                        return self.model.forward_loss(*args, **kwargs2)
+
+
+                                    self.model.forward = wrapped_forward_loss
                                     loss, datapoint_count = self.ddp_model(batch_step)
                                 else:
                                     loss, datapoint_count = self.model.forward_loss(batch_step)
@@ -935,5 +942,5 @@ class ModelTrainer(Pluggable):
     def _load_model(self, model_file: Union[str, Path]) -> None:
         """Loads the model from the given file into the current state. Safe to call from a distributed context."""
         self.model.load_state_dict(self.model.load(model_file).state_dict())
-        if torch.distributed.is_initialized():
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+        # if torch.distributed.is_initialized():
+        #     self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
