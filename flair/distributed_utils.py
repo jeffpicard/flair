@@ -19,7 +19,7 @@ def launch_distributed(fn, *args, **kwargs):
 
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
-    world_size = 1#torch.cuda.device_count()
+    world_size = 2#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
     # mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)

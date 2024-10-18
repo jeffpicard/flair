@@ -206,11 +206,11 @@ class ModelTrainer(Pluggable):
         ]:
             local_variables.pop(var)
 
-        if multi_gpu:
-            self._event_queue = None  # Each process will make its own queue rather than share
-            return launch_distributed(self.train_custom, **local_variables, **kwargs)
-        else:
-            return self.train_custom(**local_variables, **kwargs)
+        # if multi_gpu:
+        #     self._event_queue = None  # Each process will make its own queue rather than share
+        #     return launch_distributed(self.train_custom, **local_variables, **kwargs)
+        # else:
+        return self.train_custom(**local_variables, **kwargs)
 
     def fine_tune(
         self,
@@ -275,11 +275,11 @@ class ModelTrainer(Pluggable):
         ]:
             local_variables.pop(var)
 
-        if multi_gpu:
-            self._event_queue = None
-            return launch_distributed(self.train_custom, **local_variables, **kwargs)
-        else:
-            return self.train_custom(**local_variables, **kwargs)
+        # if multi_gpu:
+        #     self._event_queue = None
+        #     return launch_distributed(self.train_custom, **local_variables, **kwargs)
+        # else:
+        return self.train_custom(**local_variables, **kwargs)
 
     def train_custom(
         self,
