@@ -19,11 +19,11 @@ def launch_distributed(fn, *args, **kwargs):
 
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
-    world_size = 2#torch.cuda.device_count()
+    world_size = 4#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
     # mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
-    mp.start_processes(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size, start_method="forkserver")
+    mp.start_processes(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size, start_method="spawn")
     return_value = parent_conn.recv()
     return return_value
 
@@ -35,13 +35,16 @@ def _process_entrypoint(rank: int, world_size: int, child_conn: Connection, fn: 
     os.environ["MASTER_PORT"] = "12355"
     os.environ["RANK"] = str(rank)
     os.environ["WORLD_SIZE"] = str(world_size)
-    return_value = fn(*args, **kwargs)
-    if is_main_process():
-        child_conn.send(return_value)
-    destroy_process_group()
+    try:
+        _ddp_setup()
+        return_value = fn(*args, **kwargs)
+        if is_main_process():
+            child_conn.send(return_value)
+    finally:
+        destroy_process_group()
 
 
-def ddp_setup() -> None:
+def _ddp_setup() -> None:
     rank = int(os.environ["RANK"])
     flair.device = torch.device(rank)
     torch.cuda.set_device(flair.device)

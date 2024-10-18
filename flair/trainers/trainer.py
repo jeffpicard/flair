@@ -20,7 +20,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed, ddp_setup
+from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -409,10 +409,8 @@ class ModelTrainer(Pluggable):
             ).attach_to(self)
 
         if multi_gpu:
-            ddp_setup()
             if not torch.distributed.is_initialized():
                 raise RuntimeError("To use multi_gpu=True must be launched from launch_distributed")
-            self.model.to(flair.device)
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
@@ -645,6 +643,15 @@ class ModelTrainer(Pluggable):
                         scaler.update()
                         scale_after = scaler.get_scale()
                         batch_kw["optimizer_was_run"] = scale_before <= scale_after
+
+                        # if batch_no in {0, 100}:
+                        #     i = 0
+                        #     for name, param in self.model.named_parameters():
+                        #         i += 1
+                        #         if 5 < i < 7:
+                        #             print(f"batch={batch_no}, rank={flair.device.index}, name={name}, param={param}")
+                        #         if i == 6:
+                        #             break
 
                         if batch_train_samples > 0:
                             total_train_samples += batch_train_samples
@@ -943,5 +950,5 @@ class ModelTrainer(Pluggable):
     def _load_model(self, model_file: Union[str, Path]) -> None:
         """Loads the model from the given file into the current state. Safe to call from a distributed context."""
         self.model.load_state_dict(self.model.load(model_file).state_dict())
-        # if torch.distributed.is_initialized():
-        #     self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+        if torch.distributed.is_initialized():
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])

@@ -1107,9 +1107,6 @@ class TransformerEmbeddings(TransformerBaseEmbeddings):
                     model, config=config, **transformers_model_kwargs, **kwargs
                 )
             else:
-                print(80 * "%")
-                print(transformers_model_kwargs)
-                print(kwargs)
                 transformer_model = AutoModel.from_pretrained(
                     model, config=config, **transformers_model_kwargs, **kwargs
                 )
