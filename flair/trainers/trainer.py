@@ -7,7 +7,6 @@ import time
 import warnings
 from inspect import signature
 from pathlib import Path
-from queue import Queue
 from typing import List, Optional, Tuple, Type, Union
 
 import numpy as np
@@ -21,7 +20,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed
+from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed, ddp_setup
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -363,7 +362,7 @@ class ModelTrainer(Pluggable):
             create_file_logs: If True, logging output is written to a file
             create_loss_file: If True, a loss file logging output is created
             use_amp: If True, uses the torch automatic mixed precision
-            multi_gpu: If True, uses all available GPUs
+            multi_gpu: If True, distributes training across multiple local GPUs
             write_weights: If True, write weights to weights.txt on each batch logging event.
             plugins: Any additional plugins you want to pass to the trainer
             **kwargs: Additional arguments, for instance for the optimizer
@@ -410,11 +409,11 @@ class ModelTrainer(Pluggable):
             ).attach_to(self)
 
         if multi_gpu:
+            ddp_setup()
             if not torch.distributed.is_initialized():
-                raise RuntimeError("multi_gpu must be launched from launch_distributed")
+                raise RuntimeError("To use multi_gpu=True must be launched from launch_distributed")
             self.model.to(flair.device)
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
-            self._event_queue = Queue()  # Each process uses its own queue rather than share
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 

@@ -31,19 +31,21 @@ def launch_distributed(fn, *args, **kwargs):
 def _process_entrypoint(rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict) -> None:
     """Lifecycle of a process -- setup, run, cleanup."""
     log.info(f"Started process on rank={rank}")
-    _ddp_setup(rank, world_size)
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "12355"
+    os.environ["RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(world_size)
     return_value = fn(*args, **kwargs)
     if is_main_process():
         child_conn.send(return_value)
     destroy_process_group()
 
 
-def _ddp_setup(rank: int, world_size: int) -> None:
-    os.environ["MASTER_ADDR"] = "localhost"
-    os.environ["MASTER_PORT"] = "12355"
+def ddp_setup() -> None:
+    rank = int(os.environ["RANK"])
     flair.device = torch.device(rank)
     torch.cuda.set_device(flair.device)
-    init_process_group(backend="nccl", rank=rank, world_size=world_size)
+    init_process_group(backend="nccl")
 
 
 def is_main_process() -> bool:
