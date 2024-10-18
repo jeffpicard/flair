@@ -410,6 +410,8 @@ class ModelTrainer(Pluggable):
             ).attach_to(self)
 
         if multi_gpu:
+            if not torch.distributed.is_initialized():
+                raise RuntimeError("multi_gpu must be launched from launch_distributed")
             self.model.to(flair.device)
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
             self._event_queue = Queue()  # Each process uses its own queue rather than share
