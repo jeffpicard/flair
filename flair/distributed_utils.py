@@ -1,7 +1,7 @@
 import logging
 import os
 from multiprocessing.connection import Connection
-from typing import Callable
+from typing import Callable, List
 
 import numpy as np
 import torch
@@ -9,7 +9,7 @@ import torch.multiprocessing as mp
 from torch.distributed import destroy_process_group, init_process_group
 
 import flair
-from flair.class_utils import T
+from flair.class_utils import T, U
 
 log = logging.getLogger("flair")
 
@@ -19,11 +19,10 @@ def launch_distributed(fn, *args, **kwargs):
 
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
-    world_size = 4#torch.cuda.device_count()
+    world_size = torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
-    # mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
-    mp.start_processes(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size, start_method="spawn")
+    mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
     return_value = parent_conn.recv()
     return return_value
 
@@ -59,11 +58,11 @@ def is_main_process() -> bool:
         return True
 
 
-def aggregate_if_distributed(value: T, aggregation_fn: Callable = np.mean) -> T:
+def aggregate(value: T, aggregation_fn: Callable[[List[T]], U] = np.mean) -> U:
     """Gathers value from each process and returns the aggregated value according to the supplied function."""
     if torch.distributed.is_initialized():
         gathered_values = [None for _ in range(torch.distributed.get_world_size())]
         torch.distributed.all_gather_object(gathered_values, value)
         return aggregation_fn(gathered_values)
     else:
-        return value
+        return aggregation_fn([value])

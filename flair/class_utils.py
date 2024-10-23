@@ -4,6 +4,7 @@ from types import ModuleType
 from typing import Any, Iterable, List, Optional, Type, TypeVar, Union, overload
 
 T = TypeVar("T")
+U = TypeVar("U")
 
 
 def get_non_abstract_subclasses(cls: Type[T]) -> Iterable[Type[T]]:

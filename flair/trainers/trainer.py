@@ -20,7 +20,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import aggregate_if_distributed, is_main_process, launch_distributed
+from flair.distributed_utils import aggregate, is_main_process, launch_distributed
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -264,21 +264,48 @@ class ModelTrainer(Pluggable):
         if attach_default_scheduler:
             plugins.append(LinearSchedulerPlugin(warmup_fraction=warmup_fraction))
 
-        # call self.train_custom with all parameters (minus the ones specific to the LinearSchedulerPlugin)
-        local_variables = locals()
-        for var in [
-            "self",
-            "warmup_fraction",
-            "attach_default_scheduler",
-            "kwargs",
-        ]:
-            local_variables.pop(var)
-
-        # if multi_gpu:
-        #     self._event_queue = None
-        #     return launch_distributed(self.train_custom, **local_variables, **kwargs)
-        # else:
-        return self.train_custom(**local_variables, **kwargs)
+        return self.train_custom(
+            base_path=base_path,
+            # training parameters
+            learning_rate=learning_rate,
+            decoder_learning_rate=decoder_learning_rate,
+            mini_batch_size=mini_batch_size,
+            eval_batch_size=eval_batch_size,
+            mini_batch_chunk_size=mini_batch_chunk_size,
+            max_epochs=max_epochs,
+            optimizer=optimizer,
+            train_with_dev=train_with_dev,
+            train_with_test=train_with_test,
+            reduce_transformer_vocab=reduce_transformer_vocab,
+            # evaluation and monitoring
+            main_evaluation_metric=main_evaluation_metric,
+            monitor_test=monitor_test,
+            monitor_train_sample=monitor_train_sample,
+            use_final_model_for_eval=use_final_model_for_eval,
+            gold_label_dictionary_for_eval=gold_label_dictionary_for_eval,
+            exclude_labels=exclude_labels,
+            # sampling and shuffling
+            sampler=sampler,
+            shuffle=shuffle,
+            shuffle_first_epoch=shuffle_first_epoch,
+            # evaluation and monitoring
+            embeddings_storage_mode=embeddings_storage_mode,
+            epoch=epoch,
+            # when and what to save
+            save_final_model=save_final_model,
+            save_optimizer_state=save_optimizer_state,
+            save_model_each_k_epochs=save_model_each_k_epochs,
+            # logging parameters
+            create_file_logs=create_file_logs,
+            create_loss_file=create_loss_file,
+            write_weights=write_weights,
+            # scaling
+            use_amp=use_amp,
+            multi_gpu=multi_gpu,
+            # plugins
+            plugins=plugins,
+            **kwargs,
+        )
 
     def train_custom(
         self,
@@ -362,7 +389,7 @@ class ModelTrainer(Pluggable):
             create_file_logs: If True, logging output is written to a file
             create_loss_file: If True, a loss file logging output is created
             use_amp: If True, uses the torch automatic mixed precision
-            multi_gpu: If True, distributes training across multiple local GPUs
+            multi_gpu: If True, distributes training across local GPUs
             write_weights: If True, write weights to weights.txt on each batch logging event.
             plugins: Any additional plugins you want to pass to the trainer
             **kwargs: Additional arguments, for instance for the optimizer
@@ -410,7 +437,7 @@ class ModelTrainer(Pluggable):
 
         if multi_gpu:
             if not torch.distributed.is_initialized():
-                raise RuntimeError("To use multi_gpu=True must be launched from launch_distributed")
+                raise RuntimeError("multi_gpu=True can only used inside flair.distributed_utils.launch_distributed()")
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
             log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
@@ -501,7 +528,7 @@ class ModelTrainer(Pluggable):
                 if use_final_model_for_eval
                 else "model from best epoch (best-model.pt)"
             )
-            computation_device_info = f"{torch.cuda.device_count()} GPUs" if multi_gpu else flair.device
+            computation_device_info = aggregate(flair.device, lambda x: ", ".join([str(device) for device in x]))
 
             log_line(log)
             log.info(f'Model: "{self.model}"')
@@ -644,15 +671,6 @@ class ModelTrainer(Pluggable):
                         scale_after = scaler.get_scale()
                         batch_kw["optimizer_was_run"] = scale_before <= scale_after
 
-                        # if batch_no in {0, 100}:
-                        #     i = 0
-                        #     for name, param in self.model.named_parameters():
-                        #         i += 1
-                        #         if 5 < i < 7:
-                        #             print(f"batch={batch_no}, rank={flair.device.index}, name={name}, param={param}")
-                        #         if i == 6:
-                        #             break
-
                         if batch_train_samples > 0:
                             total_train_samples += batch_train_samples
                             train_loss = batch_train_loss / batch_train_samples
@@ -671,11 +689,11 @@ class ModelTrainer(Pluggable):
                                 if epoch_train_samples > 0
                                 else epoch_train_samples / (batch_no + 1)
                             )
-                            intermittent_loss = aggregate_if_distributed(intermittent_loss)
+                            intermittent_loss = aggregate(intermittent_loss)
 
                             current_time = time.time()
                             samples_per_second = epoch_train_samples / (current_time - epoch_start_time)
-                            samples_per_second = aggregate_if_distributed(samples_per_second, np.sum)
+                            samples_per_second = aggregate(samples_per_second, np.sum)
 
                             lr_info, momentum_info = self._get_current_lr_and_momentum(batch_count)
                             log.info(
@@ -692,7 +710,7 @@ class ModelTrainer(Pluggable):
                         self.dispatch("after_training_batch", **batch_kw)
 
                     train_loss = epoch_train_loss / epoch_train_samples
-                    train_loss = aggregate_if_distributed(train_loss)
+                    train_loss = aggregate(train_loss)
                     self._record(MetricRecord.scalar(("train", "loss"), train_loss, epoch))
 
                     total_train_samples += epoch_train_samples
@@ -850,9 +868,9 @@ class ModelTrainer(Pluggable):
 
     def _get_current_lr_and_momentum(self, batch_count):
         current_learning_rate = [group["lr"] for group in self.optimizer.param_groups]
-        current_learning_rate = [aggregate_if_distributed(m) for m in current_learning_rate]
+        current_learning_rate = [aggregate(m) for m in current_learning_rate]
         momentum = [group.get("momentum", 0) for group in self.optimizer.param_groups]
-        momentum = [aggregate_if_distributed(m) for m in momentum]
+        momentum = [aggregate(m) for m in momentum]
         lr_info = " - lr: " + ",".join([f"{m:.6f}" for m in current_learning_rate])
         momentum_info = " - momentum: " + ",".join([f"{m:.6f}" for m in momentum])
         self._record(MetricRecord.scalar_list("learning_rate", current_learning_rate, batch_count))
