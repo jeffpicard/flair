@@ -204,11 +204,6 @@ class ModelTrainer(Pluggable):
             "kwargs",
         ]:
             local_variables.pop(var)
-
-        # if multi_gpu:
-        #     self._event_queue = None  # Each process will make its own queue rather than share
-        #     return launch_distributed(self.train_custom, **local_variables, **kwargs)
-        # else:
         return self.train_custom(**local_variables, **kwargs)
 
     def fine_tune(
@@ -434,12 +429,6 @@ class ModelTrainer(Pluggable):
                 save_optimizer_state=save_optimizer_state,
                 base_path=base_path,
             ).attach_to(self)
-
-        if multi_gpu:
-            if not torch.distributed.is_initialized():
-                raise RuntimeError("multi_gpu=True can only used inside flair.distributed_utils.launch_distributed()")
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
-            log.disabled = not is_main_process()  # Disable logging in distributed mode for all but the main process
         # === END BLOCK: ACTIVATE PLUGINS === #
 
         # derive parameters the function was called with (or defaults)
@@ -500,6 +489,14 @@ class ModelTrainer(Pluggable):
             # set dataset to sample from
             sampler.set_dataset(train_data)
             shuffle = False
+
+        # configure special behavior to use multiple GPUs
+        if multi_gpu:
+            if not torch.distributed.is_initialized():
+                raise RuntimeError("multi_gpu=True can only used inside flair.distributed_utils.launch_distributed()")
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+            # self._redirect_forward_loss_through__call__()
+            log.disabled = not is_main_process()  # Only print logs once
 
         # this field stores the names of all dynamic embeddings in the model (determined after first forward pass)
         dynamic_embeddings = None
@@ -628,6 +625,7 @@ class ModelTrainer(Pluggable):
                         self.dispatch("before_training_batch", **batch_kw)
 
                         batch_steps = self.get_batch_steps(batch, mini_batch_chunk_size=mini_batch_chunk_size)
+                        # """Gather values from all process and run the supplied function to return a single value."""
 
                         # forward and backward for batch
                         for batch_step in batch_steps:
@@ -970,3 +968,54 @@ class ModelTrainer(Pluggable):
         self.model.load_state_dict(self.model.load(model_file).state_dict())
         if torch.distributed.is_initialized():
             self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+            # self._redirect_forward_loss_through__call__()
+
+    def _redirect_forward_loss_through__call__(self):
+        real_forward = self.model.forward
+        real_forward_loss = self.model.forward_loss
+
+        def forward_loss(*args, **kwargs2):
+            """Model.forward_loss, but restore the real forward incase forward_loss itself calls forward."""
+            self.model.forward = real_forward
+            result = self.model.forward_loss(*args, **kwargs2)
+            return result
+
+        def call(*args, **kwargs):
+            self.model.forward = forward_loss
+            result = self.ddp_model(*args, **kwargs)
+            self.model.forward = real_forward
+            return result
+
+        self.model.forward_loss = call  #this doesn't work because forward_loss never gets changed back to the og
+
+    def _redirect_forward_loss_through__call__3(self):
+        real_forward = self.model.forward
+
+        def forward_loss(*args, **kwargs2):
+            """Model.forward_loss, but restore the real forward incase forward_loss itself calls forward."""
+            self.model.forward = real_forward
+            result = self.model.forward_loss(*args, **kwargs2)
+            self.model.forward = forward_loss
+            return result
+
+        self.model.forward = forward_loss
+        self.model.forward_loss = self.ddp_model.__call__
+
+    def _redirect_forward_loss_through__call__2(self):
+        real_forward = self.model.forward
+
+        def forward_loss(*args, **kwargs2):
+            self.model.forward = real_forward
+            result = self.model.forward_loss(*args, **kwargs2)
+            self.model.forward = forward_loss
+            return result
+
+
+        def call(*args, **kwargs):
+            tmp_forward = self.model.forward
+            self.model.forward = forward_loss
+            result = self.ddp_model(*args, **kwargs)
+            self.model.forward = tmp_forward
+            return result
+
+        self.model.forward_loss = call

@@ -59,10 +59,19 @@ def is_main_process() -> bool:
 
 
 def aggregate(value: T, aggregation_fn: Callable[[List[T]], U] = np.mean) -> U:
-    """Gathers value from each process and returns the aggregated value according to the supplied function."""
+    """Gather `value` from all processes and send to `aggregation_fn` to get a single return value."""
     if torch.distributed.is_initialized():
         gathered_values = [None for _ in range(torch.distributed.get_world_size())]
         torch.distributed.all_gather_object(gathered_values, value)
-        return aggregation_fn(gathered_values)
     else:
-        return aggregation_fn([value])
+        gathered_values = [value]
+    return aggregation_fn(gathered_values)
+
+# def redirect(obj, method, new_method):
+#     original_method = self.model.forward
+#     def wrapped_forward_loss(*args, **kwargs2):
+#         self.model.forward = original_forward
+#         return self.model.forward_loss(*args, **kwargs2)
+#
+#
+#     self.model.forward = wrapped_forward_loss
