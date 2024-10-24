@@ -100,6 +100,10 @@ class AnnealingPlugin(TrainerPlugin):
             log.info("resetting to best model")
             self.model.load_state_dict(self.model.load(self.base_path / "best-model.pt").state_dict())
 
+    @property
+    def main_process_only(self) -> bool:
+        return True
+
     def __str__(self) -> str:
         return (
             f"AnnealOnPlateau | "

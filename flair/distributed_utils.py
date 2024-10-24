@@ -66,12 +66,3 @@ def aggregate(value: T, aggregation_fn: Callable[[List[T]], U] = np.mean) -> U:
     else:
         gathered_values = [value]
     return aggregation_fn(gathered_values)
-
-# def redirect(obj, method, new_method):
-#     original_method = self.model.forward
-#     def wrapped_forward_loss(*args, **kwargs2):
-#         self.model.forward = original_forward
-#         return self.model.forward_loss(*args, **kwargs2)
-#
-#
-#     self.model.forward = wrapped_forward_loss

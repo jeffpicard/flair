@@ -18,6 +18,8 @@ from typing import (
     cast,
 )
 
+from flair.distributed_utils import is_main_process
+
 log = logging.getLogger("flair")
 
 
@@ -189,6 +191,8 @@ class BasePlugin:
         assert self._pluggable is None
         assert len(self._hook_handles) == 0
 
+        if self.main_process_only and not is_main_process():
+            return
         self._pluggable = pluggable
 
         pluggable.append_plugin(self)
@@ -256,6 +260,10 @@ class BasePlugin:
     @property
     def pluggable(self) -> Optional[Pluggable]:
         return self._pluggable
+
+    @property
+    def main_process_only(self) -> bool:
+        return True
 
     def __str__(self) -> str:
         return self.__class__.__name__
