@@ -17,6 +17,8 @@ log = logging.getLogger("flair")
 def launch_distributed(fn, *args, **kwargs):
     """Executes the function fn(*args, **kwargs) on multiple processes (one for each local GPU).
 
+    If training with multi_gpu=True, launch_distributed should wrap your code that calls .train or .fine_tune.
+
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
     world_size = torch.cuda.device_count()
@@ -28,7 +30,7 @@ def launch_distributed(fn, *args, **kwargs):
 
 
 def _process_entrypoint(rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict) -> None:
-    """Lifecycle of a process -- setup, run, cleanup."""
+    """Lifecycle of a distributed process -- setup, run, cleanup."""
     log.info(f"Started process on rank={rank}")
     try:
         _ddp_setup(rank, world_size)
@@ -44,7 +46,7 @@ def _ddp_setup(rank: int, world_size: int) -> None:
     os.environ["MASTER_PORT"] = "12355"
     flair.device = torch.device(rank)
     torch.cuda.set_device(flair.device)
-    init_process_group(backend="nccl")
+    init_process_group(backend="nccl", rank=rank, world_size=world_size)
 
 
 def is_main_process() -> bool:

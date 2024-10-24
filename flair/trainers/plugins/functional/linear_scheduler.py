@@ -35,7 +35,7 @@ class LinearSchedulerPlugin(TrainerPlugin):
     ):
         """Initialize different schedulers, including anneal target for AnnealOnPlateau, batch_growth_annealing, loading schedulers."""
         # calculate warmup steps
-        num_processes = torch.distributed.get_world_size() if torch.distributed.is_available() else 1
+        num_processes = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
         steps_per_epoch = (dataset_size + mini_batch_size - 1) / mini_batch_size / num_processes
         num_train_steps = int(steps_per_epoch * max_epochs)
         num_warmup_steps = int(num_train_steps * self.warmup_fraction)
