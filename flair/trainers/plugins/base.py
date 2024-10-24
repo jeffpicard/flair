@@ -191,7 +191,7 @@ class BasePlugin:
         assert self._pluggable is None
         assert len(self._hook_handles) == 0
 
-        if self.main_process_only and not is_main_process():
+        if not is_main_process() and not self.attach_to_all_processes:
             return
         self._pluggable = pluggable
 
@@ -262,8 +262,9 @@ class BasePlugin:
         return self._pluggable
 
     @property
-    def main_process_only(self) -> bool:
-        return True
+    def attach_to_all_processes(self) -> bool:
+        """If set, the plugin will be attached to all processes when distributed, not just the main process."""
+        return False
 
     def __str__(self) -> str:
         return self.__class__.__name__

@@ -101,8 +101,8 @@ class AnnealingPlugin(TrainerPlugin):
             self.model.load_state_dict(self.model.load(self.base_path / "best-model.pt").state_dict())
 
     @property
-    def main_process_only(self) -> bool:
-        return True
+    def attach_to_all_processes(self) -> bool:
+        return False
 
     def __str__(self) -> str:
         return (

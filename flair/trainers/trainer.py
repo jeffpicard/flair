@@ -526,7 +526,7 @@ class ModelTrainer(Pluggable):
                 if use_final_model_for_eval
                 else "model from best epoch (best-model.pt)"
             )
-            computation_device_info = aggregate(flair.device, lambda x: ", ".join([str(device) for device in x]))
+            computation_device_info = aggregate(flair.device, lambda devices: ", ".join([str(device) for device in devices]))
 
             log_line(log)
             log.info(f'Model: "{self.model}"')
@@ -626,7 +626,6 @@ class ModelTrainer(Pluggable):
                         self.dispatch("before_training_batch", **batch_kw)
 
                         batch_steps = self.get_batch_steps(batch, mini_batch_chunk_size=mini_batch_chunk_size)
-                        # """Gather values from all process and run the supplied function to return a single value."""
 
                         # forward and backward for batch
                         for batch_step in batch_steps:
@@ -865,9 +864,7 @@ class ModelTrainer(Pluggable):
 
     def _get_current_lr_and_momentum(self, batch_count):
         current_learning_rate = [group["lr"] for group in self.optimizer.param_groups]
-        current_learning_rate = [aggregate(m) for m in current_learning_rate]
         momentum = [group.get("momentum", 0) for group in self.optimizer.param_groups]
-        momentum = [aggregate(m) for m in momentum]
         lr_info = " - lr: " + ",".join([f"{m:.6f}" for m in current_learning_rate])
         momentum_info = " - momentum: " + ",".join([f"{m:.6f}" for m in momentum])
         self._record(MetricRecord.scalar_list("learning_rate", current_learning_rate, batch_count))

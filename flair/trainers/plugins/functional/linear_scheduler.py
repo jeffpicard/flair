@@ -62,7 +62,7 @@ class LinearSchedulerPlugin(TrainerPlugin):
         self.store_learning_rate()
 
     @property
-    def main_process_only(self) -> bool:
+    def attach_to_all_processes(self) -> bool:
         return True
 
     def __str__(self) -> str:
