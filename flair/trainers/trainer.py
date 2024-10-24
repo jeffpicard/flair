@@ -494,9 +494,10 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             if not torch.distributed.is_initialized():
                 raise RuntimeError("multi_gpu=True can only used inside flair.distributed_utils.launch_distributed()")
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index], find_unused_parameters=True)
             # self._redirect_forward_loss_through__call__()
             log.disabled = not is_main_process()  # Only print logs once
+            original_forward = self.model.forward
 
         # this field stores the names of all dynamic embeddings in the model (determined after first forward pass)
         dynamic_embeddings = None
@@ -632,11 +633,9 @@ class ModelTrainer(Pluggable):
                             # forward pass
                             with torch.autocast(device_type=flair.device.type, enabled=use_amp):
                                 if multi_gpu:
-                                    original_forward = self.model.forward
                                     def wrapped_forward_loss(*args, **kwargs2):
                                         self.model.forward = original_forward
                                         return self.model.forward_loss(*args, **kwargs2)
-
 
                                     self.model.forward = wrapped_forward_loss
                                     loss, datapoint_count = self.ddp_model(batch_step)
@@ -967,7 +966,7 @@ class ModelTrainer(Pluggable):
         """Loads the model from the given file into the current state. Safe to call from a distributed context."""
         self.model.load_state_dict(self.model.load(model_file).state_dict())
         if torch.distributed.is_initialized():
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index])
+            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index], find_unused_parameters=True)
             # self._redirect_forward_loss_through__call__()
 
     def _redirect_forward_loss_through__call__(self):
