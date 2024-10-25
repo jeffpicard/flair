@@ -18,6 +18,8 @@ from typing import (
     cast,
 )
 
+from flair.distributed_utils import is_main_process
+
 log = logging.getLogger("flair")
 
 
@@ -189,6 +191,8 @@ class BasePlugin:
         assert self._pluggable is None
         assert len(self._hook_handles) == 0
 
+        if not is_main_process() and not self.attach_to_all_processes:
+            return
         self._pluggable = pluggable
 
         pluggable.append_plugin(self)
@@ -256,6 +260,11 @@ class BasePlugin:
     @property
     def pluggable(self) -> Optional[Pluggable]:
         return self._pluggable
+
+    @property
+    def attach_to_all_processes(self) -> bool:
+        """If set, the plugin will be attached to all processes when distributed, not just the main process."""
+        return True
 
     def __str__(self) -> str:
         return self.__class__.__name__
