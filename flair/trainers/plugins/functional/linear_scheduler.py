@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict
 
 import torch.distributed
+
 from flair.optim import LinearSchedulerWithWarmup
 from flair.trainers.plugins.base import TrainerPlugin
 

@@ -20,7 +20,7 @@ import flair
 import flair.nn
 from flair.data import Corpus, Dictionary, _len_dataset
 from flair.datasets import DataLoader
-from flair.distributed_utils import aggregate, is_main_process, launch_distributed
+from flair.distributed_utils import aggregate, is_main_process
 from flair.samplers import FlairSampler
 from flair.trainers.plugins import (
     AnnealingPlugin,
@@ -497,7 +497,6 @@ class ModelTrainer(Pluggable):
             self.ddp_model = DistributedDataParallel(
                 self.model, device_ids=[flair.device.index], find_unused_parameters=True
             )
-            # self._redirect_forward_loss_through__call__()
             log.disabled = not is_main_process()  # Only print logs once
             original_forward = self.model.forward
 
@@ -971,53 +970,3 @@ class ModelTrainer(Pluggable):
             self.ddp_model = DistributedDataParallel(
                 self.model, device_ids=[flair.device.index], find_unused_parameters=True
             )
-            # self._redirect_forward_loss_through__call__()
-
-    def _redirect_forward_loss_through__call__(self):
-        real_forward = self.model.forward
-        real_forward_loss = self.model.forward_loss
-
-        def forward_loss(*args, **kwargs2):
-            """Model.forward_loss, but restore the real forward incase forward_loss itself calls forward."""
-            self.model.forward = real_forward
-            result = self.model.forward_loss(*args, **kwargs2)
-            return result
-
-        def call(*args, **kwargs):
-            self.model.forward = forward_loss
-            result = self.ddp_model(*args, **kwargs)
-            self.model.forward = real_forward
-            return result
-
-        self.model.forward_loss = call  # this doesn't work because forward_loss never gets changed back to the og
-
-    def _redirect_forward_loss_through__call__3(self):
-        real_forward = self.model.forward
-
-        def forward_loss(*args, **kwargs2):
-            """Model.forward_loss, but restore the real forward incase forward_loss itself calls forward."""
-            self.model.forward = real_forward
-            result = self.model.forward_loss(*args, **kwargs2)
-            self.model.forward = forward_loss
-            return result
-
-        self.model.forward = forward_loss
-        self.model.forward_loss = self.ddp_model.__call__
-
-    def _redirect_forward_loss_through__call__2(self):
-        real_forward = self.model.forward
-
-        def forward_loss(*args, **kwargs2):
-            self.model.forward = real_forward
-            result = self.model.forward_loss(*args, **kwargs2)
-            self.model.forward = forward_loss
-            return result
-
-        def call(*args, **kwargs):
-            tmp_forward = self.model.forward
-            self.model.forward = forward_loss
-            result = self.ddp_model(*args, **kwargs)
-            self.model.forward = tmp_forward
-            return result
-
-        self.model.forward_loss = call
