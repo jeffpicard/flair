@@ -494,7 +494,9 @@ class ModelTrainer(Pluggable):
         if multi_gpu:
             if not torch.distributed.is_initialized():
                 raise RuntimeError("multi_gpu=True can only used inside flair.distributed_utils.launch_distributed()")
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index], find_unused_parameters=True)
+            self.ddp_model = DistributedDataParallel(
+                self.model, device_ids=[flair.device.index], find_unused_parameters=True
+            )
             # self._redirect_forward_loss_through__call__()
             log.disabled = not is_main_process()  # Only print logs once
             original_forward = self.model.forward
@@ -526,7 +528,9 @@ class ModelTrainer(Pluggable):
                 if use_final_model_for_eval
                 else "model from best epoch (best-model.pt)"
             )
-            computation_device_info = aggregate(flair.device, lambda devices: ", ".join([str(device) for device in devices]))
+            computation_device_info = aggregate(
+                flair.device, lambda devices: ", ".join([str(device) for device in devices])
+            )
 
             log_line(log)
             log.info(f'Model: "{self.model}"')
@@ -632,6 +636,7 @@ class ModelTrainer(Pluggable):
                             # forward pass
                             with torch.autocast(device_type=flair.device.type, enabled=use_amp):
                                 if multi_gpu:
+
                                     def wrapped_forward_loss(*args, **kwargs2):
                                         self.model.forward = original_forward
                                         return self.model.forward_loss(*args, **kwargs2)
@@ -963,7 +968,9 @@ class ModelTrainer(Pluggable):
         """Loads the model from the given file into the current state. Safe to call from a distributed context."""
         self.model.load_state_dict(self.model.load(model_file).state_dict())
         if torch.distributed.is_initialized():
-            self.ddp_model = DistributedDataParallel(self.model, device_ids=[flair.device.index], find_unused_parameters=True)
+            self.ddp_model = DistributedDataParallel(
+                self.model, device_ids=[flair.device.index], find_unused_parameters=True
+            )
             # self._redirect_forward_loss_through__call__()
 
     def _redirect_forward_loss_through__call__(self):
@@ -982,7 +989,7 @@ class ModelTrainer(Pluggable):
             self.model.forward = real_forward
             return result
 
-        self.model.forward_loss = call  #this doesn't work because forward_loss never gets changed back to the og
+        self.model.forward_loss = call  # this doesn't work because forward_loss never gets changed back to the og
 
     def _redirect_forward_loss_through__call__3(self):
         real_forward = self.model.forward
@@ -1005,7 +1012,6 @@ class ModelTrainer(Pluggable):
             result = self.model.forward_loss(*args, **kwargs2)
             self.model.forward = forward_loss
             return result
-
 
         def call(*args, **kwargs):
             tmp_forward = self.model.forward

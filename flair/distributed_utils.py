@@ -29,7 +29,9 @@ def launch_distributed(fn, *args, **kwargs):
     return return_value
 
 
-def _process_entrypoint(rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict) -> None:
+def _process_entrypoint(
+    rank: int, world_size: int, child_conn: Connection, fn: Callable, args: tuple, kwargs: dict
+) -> None:
     """Lifecycle of a distributed process -- setup, run, cleanup."""
     log.info(f"Started process on rank={rank}")
     try:
