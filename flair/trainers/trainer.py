@@ -167,7 +167,7 @@ class ModelTrainer(Pluggable):
         create_file_logs: bool = True,
         create_loss_file: bool = True,
         write_weights: bool = False,
-        # scaling
+        # acceleration
         multi_gpu: bool = False,
         # plugins
         plugins: Optional[List[TrainerPlugin]] = None,
@@ -243,7 +243,7 @@ class ModelTrainer(Pluggable):
         create_file_logs: bool = True,
         create_loss_file: bool = True,
         write_weights: bool = False,
-        # scaling
+        # acceleration
         use_amp: bool = False,
         multi_gpu: bool = False,
         # plugins
