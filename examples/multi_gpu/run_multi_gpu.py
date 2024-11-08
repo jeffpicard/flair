@@ -13,10 +13,10 @@ def main(multi_gpu):
     # This code will run multiple times -- each GPU gets its own process and each process runs this code. We need to
     # ensure that the corpus has the same elements and order on all processes, despite sampling. We do that by using
     # the same seed on all processes.
-    flair.set_seed(1336)
+    flair.set_seed(42)
 
     corpus = IMDB()
-    corpus.downsample(0.01)
+    corpus.downsample(0.1)
     label_type = "sentiment"
     label_dictionary = corpus.make_label_dictionary(label_type)
 
