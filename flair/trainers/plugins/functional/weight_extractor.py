@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any
 
 from flair.trainers.plugins.base import TrainerPlugin
 from flair.training_utils import WeightExtractor
@@ -25,7 +25,7 @@ class WeightExtractorPlugin(TrainerPlugin):
     def attach_to_all_processes(self) -> bool:
         return False
 
-    def get_state(self) -> Dict[str, Any]:
+    def get_state(self) -> dict[str, Any]:
         return {
             **super().get_state(),
             "base_path": str(self.base_path),
