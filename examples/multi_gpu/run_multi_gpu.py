@@ -35,7 +35,7 @@ def main(multi_gpu):
     # process 32 examples at the same time, then the optimizer will step.
 
     trainer = ModelTrainer(model, corpus)
-    trainer.train(
+    trainer.fine_tune(
         "resources/taggers/multi-gpu",
         multi_gpu=multi_gpu,  # Required for multi-gpu
         max_epochs=2,
