@@ -498,7 +498,7 @@ class ModelTrainer(Pluggable):
             # Guard against each process initializing corpus differently due to e.g. different random seeds
             validate_corpus_same_each_process(self.corpus)
             self.ddp_model = DistributedDataParallel(
-                self.model, device_ids=[flair.device.index], find_unused_parameters=True
+                self.model, device_ids=None, find_unused_parameters=True
             )
             log.disabled = not is_main_process()  # Only print logs once
             original_forward = self.model.forward
