@@ -23,7 +23,7 @@ def launch_distributed(fn, *args, **kwargs):
 
     Returns: the return value of the function fp(*args, **kwargs) from the rank 0 process
     """
-    world_size = torch.cuda.device_count()
+    world_size = 1#torch.cuda.device_count()
     log.info(f"Launching {world_size} processes")
     parent_conn, child_conn = mp.Pipe()
     mp.spawn(_process_entrypoint, args=(world_size, child_conn, fn, args, kwargs), nprocs=world_size)
@@ -48,9 +48,9 @@ def _process_entrypoint(
 def _ddp_setup(rank: int, world_size: int) -> None:
     os.environ["MASTER_ADDR"] = "localhost"
     os.environ["MASTER_PORT"] = "12355"
-    flair.device = torch.device(rank)
-    torch.cuda.set_device(flair.device)
-    init_process_group(backend="nccl", rank=rank, world_size=world_size)
+    # flair.device = torch.device(rank)
+    # torch.cuda.set_device(flair.device)
+    init_process_group(backend="gloo", rank=rank, world_size=world_size)
 
 
 def is_main_process() -> bool:
