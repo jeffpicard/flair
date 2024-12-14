@@ -1101,26 +1101,26 @@ class TransformerEmbeddings(TransformerBaseEmbeddings):
 
         if saved_config is None:
             config = AutoConfig.from_pretrained(
-                model, output_hidden_states=True, **transformers_config_kwargs, **kwargs
+                model, output_hidden_states=True, **transformers_config_kwargs
             )
 
             if is_supported_t5_model(config):
                 from transformers import T5EncoderModel
 
                 transformer_model = T5EncoderModel.from_pretrained(
-                    model, config=config, **transformers_model_kwargs, **kwargs
+                    model, config=config, **transformers_model_kwargs
                 )
             else:
                 transformer_model = AutoModel.from_pretrained(
-                    model, config=config, **transformers_model_kwargs, **kwargs
+                    model, config=config, **transformers_model_kwargs
                 )
         else:
             if is_supported_t5_model(saved_config):
                 from transformers import T5EncoderModel
 
-                transformer_model = T5EncoderModel(saved_config, **transformers_model_kwargs, **kwargs)
+                transformer_model = T5EncoderModel(saved_config, **transformers_model_kwargs)
             else:
-                transformer_model = AutoModel.from_config(saved_config, **transformers_model_kwargs, **kwargs)
+                transformer_model = AutoModel.from_config(saved_config, **transformers_model_kwargs)
         try:
             transformer_model = transformer_model.to(flair.device)
         except ValueError as e:
